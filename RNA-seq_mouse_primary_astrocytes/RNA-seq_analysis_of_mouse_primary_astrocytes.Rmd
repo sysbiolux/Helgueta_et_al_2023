@@ -1,0 +1,556 @@
+---
+title: "RNA-seq analysis of mouse primary astrocytes"
+author: "Sergio Helgueta"
+output: html_document
+date: '2022-12-27'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Analysis of RNA-seq mouse primary astrocytes treated with different siRNAs: 4 siControl (siScramble), 3 siPark7, 3 siNfe2l2 and 3 siCyp1b1. They are paired-samples, so each biological replicate of each condition has its own control.
+
+# Version of the different tools used
+
+```{r}
+conda 4.11.0
+snakemake 6.10.0
+
+STAR 2.7.4a
+samtools 1.10
+SortMeRNA 2.1
+FastQC 0.11.9
+AdapterRemoval ver. 2.3.1
+R version 4.0.0 (2020-04-24)
+DESeq2  1.20.0
+apeglm  1.10.0 
+Rsubread 1.28.1  
+```
+
+# RNA-seq analysis using SnakeMake
+
+Snakemake pipeline was used for the analysis of the RNA-seq data (https://github.com/snakemake/snakemake).All the details can be found in https://gitlab.lcsb.uni.lu/aurelien.ginolhac/snakemake-rna-seq 
+
+Set up the environment:
+
+```{r}
+#Snakemake is installed via conda
+conda update conda
+conda install -c conda-forge mamba
+mamba create -c conda-forge -c bioconda -n snakemake snakemake
+```
+
+Now snakemake should be installed in its specific environment. This can be checked:
+
+
+```{r}
+conda env list
+```
+
+```{r}
+#recommendation: update snakemake
+conda update -c conda-forge -c bioconda -n snakemake snakemake
+```
+
+Fecth the workflow template:
+
+```{r}
+wget -qO- https://git-r3lab.uni.lu/aurelien.ginolhac/snakemake-rna-seq/-/archive/v0.2.3/snakemake-rna-seq-.tar.gz | tar xfz - --strip-components=1
+```
+
+Preparation of specific setups:
+
+```{r}
+alias smk='conda activate snakemake && module load tools/Singularity'
+alias dag='snakemake --dag | dot -Tpdf > dag.pdf'
+complete -o bashdefault -C snakemake-bash-completion snakemake
+```
+
+Enter the config folder and go the the following file: **config.yaml**. Inside this file, the following modifications were done:
+
+```{r}
+ref:
+  species: "mus_musculus"
+  build: "GRCm38"
+  release: "102"
+  
+diffexp:
+  contrasts:
+   # contrasts for the deseq2 results method
+   # write down EFFECT_vs_CONTROL:
+   #  - FULLNAME_CONTROL
+   #  - FULLNAME_EFFECT
+    CONTROL_vs_TREATED:
+      - CONTROL
+      - TREATED
+```
+
+In the previous step, all the treated astrocytes were labelled as "TREATED". Later, for the differential expression analysis, the different groups of treatments are separated.
+
+To be able to create the **units.tsv** file one can run the following command:
+
+```{r}
+ls fastq/*z | paste - - | awk 'BEGIN{OFS="\t";print "sample\tunit\tfq1\tfq2\tstrandedness"}{id=substr($1,index($1,"/")+1,index($1,"_RNA")-7);print id,"1",$1,$2, "reverse"}' | sed 's/\-/_/' > config/units.tsv
+```
+
+Regarding **samples.tsv**:
+
+```{r}
+ls fastq/*z | paste - - | awk 'BEGIN{OFS="\t";print "sample\tcondition"}{id=substr($1,index($1,"/")+1,index($1,"_RNA")-7);print id,id}' | sed 's/[0-9]$//; s/\-/_/g' > config/samples.tsv
+```
+
+Inside **samples.tsv** it is necessary to specify the condition. In this case, KO or WT according to the genotype of the sample used.
+
+Once those files are defined, snakemake can be run using the following commands:
+
+```{r}
+conda activate snakemake 
+srun snakemake --use-singularity --singularity-args "-B /scratch/users/aginolhac:/scratch/users/aginolhac" -j 28
+```
+
+Once this is done, gene counts are obtained.
+
+# DESeq2 analysis
+
+Loading the libraries:
+
+```{r}
+library(tidyverse)
+library(DESeq2)
+library(knitr)
+library(htmlTable)
+library(rtracklayer)
+library(RColorBrewer)
+library(pheatmap)
+```
+
+## Start of the analysis
+
+Extract the counts from the .rds file
+
+```{r}
+fc_hs <- readr::read_rds("~/fc.rds")
+rawcounts <- fc_hs$counts
+#to see the order of the samples in the file
+head(rawcounts)
+#change the name of each sample-column
+colnames(rawcounts) <- c("siCyp1b1_1", "siCyp1b1_2", "siCyp1b1_3", "siPark7_1", "siPark7_2", "siPark7_3", "siNeg_1", "siNeg_2", "siNeg_3", "siNeg_4", "siNfe2l2_1", "siNfe2l2_2", "siNfe2l2_3")
+# Separating by treatment and selecting the controls for each condition
+rawcounts_Cyp <- rawcounts[, c(1,2,3,8,9,10)]
+rawcounts_Park7 <- rawcounts[, c(4,5,6,8,9,10)]
+rawcounts_Nfe2l2 <- rawcounts[, c(11,12,13,7,9,10)]
+```
+
+
+## Creation of metadata
+
+```{r}
+genotype_Cyp <- c("siCyp1b1", "siCyp1b1", "siCyp1b1", "siNeg", "siNeg", "siNeg")
+genotype_Park7 <- c("siPark7", "siPark7", "siPark7", "siNeg", "siNeg", "siNeg")
+genotype_Nfe2l2 <- c("siNfe2l2", "siNfe2l2", "siNfe2l2","siNeg", "siNeg", "siNeg")
+# since they are paired-samples, each subject correspond to one "pair"
+subject_Cyp <- c("p1", "p2", "p3", "p1", "p2", "p3")
+subject_Park7 <- c("p1", "p2", "p3", "p1", "p2", "p3")
+subject_Nfe2l2 <- c("p1", "p2", "p3", "p1", "p2", "p3")
+```
+
+Combine the vectors in a data frame and then add the exact names of the samples:
+
+```{r}
+info.data_Cyp <- data.frame(genotype_Cyp, subject_Cyp)
+info.data_Park7 <- data.frame(genotype_Park7, subject_Park7)
+info.data_Nfe2l2 <- data.frame(genotype_Nfe2l2, subject_Nfe2l2)
+rownames(info.data_Cyp) <- c("siCyp1b1_1", "siCyp1b1_2", "siCyp1b1_3", "siNeg_2", "siNeg_3", "siNeg_4")
+rownames(info.data_Park7) <- c("siPark7_1", "siPark7_2", "siPark7_3", "siNeg_2", "siNeg_3", "siNeg_4")
+rownames(info.data_Nfe2l2) <- c("siNfe2l2_1", "siNfe2l2_2", "siNfe2l2_3",  "siNeg_1", "siNeg_3", "siNeg_4")
+info.data_Cyp
+info.data_Park7
+info.data_Nfe2l2
+```
+
+
+# siPark7
+
+## Create the DESeq2 object
+
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = rawcounts_Park7,
+                              colData = info.data_Park7,
+                              design = ~ subject_Park7 + genotype_Park7)
+dds$genotype_Park7 <- factor(dds$genotype_Park7, levels = c("siNeg", "siPark7"))
+```
+
+## PCA plot
+
+```{r}
+vst <- vst(dds, blind = TRUE)
+plotPCA(vst, intgroup = c("genotype_Park7", "subject_Park7"))
+```
+
+## Pre-filtering of low expressed genes
+
+It is not necessary, but doing it you can remove rows in which there are very few reads, and we increase the speed of the transformation and testing functions within DESeq2. Here, we perform a minimal pre-filtering to keep only rows that have at least 10 reads in total. With the results function we do a more strict filtering on the mean of normalized counts to increase power
+
+```{r}
+#minimal pre-filtering to keep only rows-genes that have at least 10 reads in total (all samples)
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+raw_count_after_filtering <- counts(dds) #With this one I will do the PCA plot
+```
+
+## Differentail expression analysis
+
+```{r}
+dds <- DESeq(dds)
+```
+
+
+## Log fold change shrinkage for visualization and ranking
+
+```{r}
+# Checking which coef we should take in the following function
+resultsNames(dds)
+library(apeglm)
+# To effect size shrinkage
+ape <- lfcShrink(dds = dds, coef = 4, type = "apeglm")
+sum(ape$padj < 0.05, na.rm = TRUE)
+```
+
+```{r}
+plotMA(ape, ylim=c(-5,5), cex=.6, alpha = .05, colSig = "red")
+```
+
+
+## Annotation of the results
+
+```{r}
+gtf <- import("~/GRCm38.gtf")
+annotation_genes <- data.frame(gtf)
+```
+
+```{r}
+ape_df <- data.frame(ape)
+##With the following command we will call to the first column gene_id
+ape_df <- ape_df %>% 
+  rownames_to_column(var = "gene_id")
+
+##With this one we will join both data frames by gene_id
+ape_df <- left_join(ape_df,
+          annotation_genes,
+          by = "gene_id") %>% 
+  distinct(gene_id, .keep_all = TRUE)
+
+##And with this one we will keep just the columns we are interested on
+ape_df <- ape_df %>% 
+  dplyr::select(gene_id, baseMean, log2FoldChange, lfcSE, pvalue, padj, seqnames, gene_name)
+```
+
+```{r}
+library(annotables)
+grcm38 %>% dplyr::select(symbol, description) -> grcm38_description
+```
+
+
+```{r}
+left_join(ape_df,
+          grcm38_description, 
+          by = c("gene_name" = "symbol")) %>% 
+  distinct(gene_id, .keep_all = TRUE) -> ape_df
+```
+
+## Arrange Differentially expressed genes according to their adjusted p-value
+
+```{r}
+# Selecting the ones with an FDR < 0.05
+subset(ape_df, padj < 0.05) -> significant_genes
+```
+
+## Volcano plot
+
+```{r}
+#We transofrm ape into a data frame
+a <- data.frame(ape)
+a <- tibble::rownames_to_column(a, "gene_id")
+#We annotate the gene names
+annotation_genes <- data.frame(gtf)
+a <- left_join(a,
+          annotation_genes,
+          by = "gene_id") %>% 
+  distinct(gene_id, .keep_all = TRUE)
+a <- a %>% 
+  dplyr::select(gene_id, baseMean, log2FoldChange, lfcSE, pvalue, padj, gene_name)
+
+#Create a new column "diffexpressed"to specify if the genes are "YES" or "NO" differentially expressed according to the adjusted p value. 
+a$diffexpressed <- "No"
+a$diffexpressed[a$padj < 0.05] <- "Yes"
+
+subset(a, diffexpressed == "Yes" ) -> DEGs
+DEGs
+# We can plot just this
+g <- ggplot(data=a,aes(x=log2FoldChange, y=-log10(pvalue), col=diffexpressed)) + geom_point(size = 0.1) + theme_minimal() 
+mycolors <- c("grey", "red")
+names(mycolors) <- c("No", "Yes")
+g2 <- g + scale_colour_manual(values = mycolors) + ggtitle("Volcano Plot for DEGs") + theme_classic()
+```
+
+
+
+# siNfe2l2
+
+## Create the DESeq2 object
+
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = rawcounts_Nfe2l2,
+                              colData = info.data_Nfe2l2,
+                              design = ~ subject_Nfe2l2 + genotype_Nfe2l2)
+dds$genotype_Nfe2l2 <- factor(dds$genotype_Nfe2l2, levels = c("siNeg", "siNfe2l2"))
+```
+
+## PCA plot
+
+
+```{r}
+vst <- vst(dds, blind = TRUE)
+plotPCA(vst, intgroup = c("genotype_Nfe2l2", "subject_Nfe2l2"))
+```
+
+
+
+
+## Pre-filtering of low expressed genes
+
+It is not necessary, but doing it you can remove rows in which there are very few reads, and we increase the speed of the transformation and testing functions within DESeq2. Here, we perform a minimal pre-filtering to keep only rows that have at least 10 reads in total. With the results function we do a more strict filtering on the mean of normalized counts to increase power
+
+```{r}
+#minimal pre-filtering to keep only rows-genes that have at least 10 reads in total (all samples)
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+raw_count_after_filtering <- counts(dds) #With this one I will do the PCA plot
+```
+
+## Differentail expression analysis
+
+```{r}
+dds <- DESeq(dds)
+```
+
+
+## Log fold change shrinkage for visualization and ranking
+
+```{r}
+# Checking which coef we should take in the following function
+resultsNames(dds)
+library(apeglm)
+# To effect size shrinkage
+ape <- lfcShrink(dds = dds, coef = 4, type = "apeglm")
+sum(ape$padj < 0.05, na.rm = TRUE)
+```
+
+```{r}
+plotMA(ape, ylim=c(-5,5), cex=.6, alpha = .05, colSig = "red")
+```
+
+
+## Annotation of the results
+
+```{r}
+gtf <- import("~/GRCm38.gtf")
+annotation_genes <- data.frame(gtf)
+```
+
+```{r}
+ape_df <- data.frame(ape)
+##With the following command we will call to the first column gene_id
+ape_df <- ape_df %>% 
+  rownames_to_column(var = "gene_id")
+
+##With this one we will join both data frames by gene_id
+ape_df <- left_join(ape_df,
+          annotation_genes,
+          by = "gene_id") %>% 
+  distinct(gene_id, .keep_all = TRUE)
+
+##And with this one we will keep just the columns we are interested on
+ape_df <- ape_df %>% 
+  dplyr::select(gene_id, baseMean, log2FoldChange, lfcSE, pvalue, padj, seqnames, gene_name)
+```
+
+```{r}
+library(annotables)
+grcm38 %>% dplyr::select(symbol, description) -> grcm38_description
+```
+
+
+```{r}
+left_join(ape_df,
+          grcm38_description, 
+          by = c("gene_name" = "symbol")) %>% 
+  distinct(gene_id, .keep_all = TRUE) -> ape_df
+```
+
+## Arrange Differentially expressed genes according to their adjusted p-value
+
+```{r}
+# Selecting the ones with an FDR < 0.05
+subset(ape_df, padj < 0.05) -> significant_genes
+```
+
+## Volcano plot
+
+```{r}
+#We transofrm ape into a data frame
+a <- data.frame(ape)
+a <- tibble::rownames_to_column(a, "gene_id")
+#We annotate the gene names
+annotation_genes <- data.frame(gtf)
+a <- left_join(a,
+          annotation_genes,
+          by = "gene_id") %>% 
+  distinct(gene_id, .keep_all = TRUE)
+a <- a %>% 
+  dplyr::select(gene_id, baseMean, log2FoldChange, lfcSE, pvalue, padj, gene_name)
+
+#Create a new column "diffexpressed"to specify if the genes are "YES" or "NO" differentially expressed according to the adjusted p value. 
+a$diffexpressed <- "No"
+a$diffexpressed[a$padj < 0.05] <- "Yes"
+
+subset(a, diffexpressed == "Yes" ) -> DEGs
+DEGs
+# We can plot just this
+g <- ggplot(data=a,aes(x=log2FoldChange, y=-log10(pvalue), col=diffexpressed)) + geom_point(size = 0.1) + theme_minimal() 
+mycolors <- c("grey", "red")
+names(mycolors) <- c("No", "Yes")
+g2 <- g + scale_colour_manual(values = mycolors) + ggtitle("Volcano Plot for DEGs") + theme_classic()
+```
+
+
+
+# Cyp1b1
+
+## Create the DESeq2 object
+
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = rawcounts_Cyp,
+                              colData = info.data_Cyp,
+                              design = ~ subject_Cyp + genotype_Cyp)
+dds$genotype_Cyp <- factor(dds$genotype_Cyp, levels = c("siNeg", "siCyp1b1"))
+```
+
+## PCA plot
+
+
+```{r}
+vst <- vst(dds, blind = TRUE)
+plotPCA(vst, intgroup = c("genotype_Cyp", "subject_Cyp"))
+```
+
+
+## Pre-filtering of low expressed genes
+
+It is not necessary, but doing it you can remove rows in which there are very few reads, and we increase the speed of the transformation and testing functions within DESeq2. Here, we perform a minimal pre-filtering to keep only rows that have at least 10 reads in total. With the results function we do a more strict filtering on the mean of normalized counts to increase power
+
+```{r}
+#minimal pre-filtering to keep only rows-genes that have at least 10 reads in total (all samples)
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+raw_count_after_filtering <- counts(dds) #With this one I will do the PCA plot
+```
+
+## Differentail expression analysis
+
+```{r}
+dds <- DESeq(dds)
+```
+
+
+## Log fold change shrinkage for visualization and ranking
+
+```{r}
+# Checking which coef we should take in the following function
+resultsNames(dds)
+library(apeglm)
+# To effect size shrinkage
+ape <- lfcShrink(dds = dds, coef = 4, type = "apeglm")
+sum(ape$padj < 0.05, na.rm = TRUE)
+```
+
+```{r}
+plotMA(ape, ylim=c(-5,5), cex=.6, alpha = .05, colSig = "red")
+```
+
+
+## Annotation of the results
+
+```{r}
+gtf <- import("~/GRCm38.gtf")
+annotation_genes <- data.frame(gtf)
+```
+
+```{r}
+ape_df <- data.frame(ape)
+##With the following command we will call to the first column gene_id
+ape_df <- ape_df %>% 
+  rownames_to_column(var = "gene_id")
+
+##With this one we will join both data frames by gene_id
+ape_df <- left_join(ape_df,
+          annotation_genes,
+          by = "gene_id") %>% 
+  distinct(gene_id, .keep_all = TRUE)
+
+##And with this one we will keep just the columns we are interested on
+ape_df <- ape_df %>% 
+  dplyr::select(gene_id, baseMean, log2FoldChange, lfcSE, pvalue, padj, seqnames, gene_name)
+```
+
+```{r}
+library(annotables)
+grcm38 %>% dplyr::select(symbol, description) -> grcm38_description
+```
+
+
+```{r}
+left_join(ape_df,
+          grcm38_description, 
+          by = c("gene_name" = "symbol")) %>% 
+  distinct(gene_id, .keep_all = TRUE) -> ape_df
+```
+
+## Arrange Differentially expressed genes according to their adjusted p-value
+
+```{r}
+# Selecting the ones with an FDR < 0.05
+subset(ape_df, padj < 0.05) -> significant_genes
+```
+
+## Volcano plot
+
+```{r}
+#We transofrm ape into a data frame
+a <- data.frame(ape)
+a <- tibble::rownames_to_column(a, "gene_id")
+#We annotate the gene names
+annotation_genes <- data.frame(gtf)
+a <- left_join(a,
+          annotation_genes,
+          by = "gene_id") %>% 
+  distinct(gene_id, .keep_all = TRUE)
+a <- a %>% 
+  dplyr::select(gene_id, baseMean, log2FoldChange, lfcSE, pvalue, padj, gene_name)
+
+#Create a new column "diffexpressed"to specify if the genes are "YES" or "NO" differentially expressed according to the adjusted p value. 
+a$diffexpressed <- "No"
+a$diffexpressed[a$padj < 0.05] <- "Yes"
+
+subset(a, diffexpressed == "Yes" ) -> DEGs
+DEGs
+# We can plot just this
+g <- ggplot(data=a,aes(x=log2FoldChange, y=-log10(pvalue), col=diffexpressed)) + geom_point(size = 0.1) + theme_minimal() 
+mycolors <- c("grey", "red")
+names(mycolors) <- c("No", "Yes")
+g2 <- g + scale_colour_manual(values = mycolors) + ggtitle("Volcano Plot for DEGs") + theme_classic()
+```
+

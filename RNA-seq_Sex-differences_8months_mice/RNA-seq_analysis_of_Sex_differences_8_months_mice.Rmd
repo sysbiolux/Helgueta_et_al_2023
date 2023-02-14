@@ -1,0 +1,302 @@
+---
+title: "RNA-seq analysis of Sex differences 8 months mice"
+author: "Sergio Helgueta"
+output: html_document
+date: '2022-12-27'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+For this analysis of RNA-seq, the data coming from the midbrain of 4 wildtype female mice and 8 Wildtype male mice at 8 months of age was used. These samples were the same ones used in the section called **RNA-seq_Park7_KnockOut_mice** as control for the analysis of "FemaleS 8 months of age" and "MaleS 8 months of age first and second cohort together"
+
+Since the different cohorts were sequenced in different experiments, RUVSeq tool for batch correction was applied
+
+
+# Version of the different tools used
+
+```{r}
+DESeq2  1.20.0
+apeglm  1.10.0 
+Rsubread 1.28.1  
+```
+
+Loading the libraries:
+
+```{r}
+library(edgeR)
+library(RUVSeq)
+library(tidyverse)
+library(DESeq2)
+library(knitr)
+library(htmlTable)
+library(rtracklayer)
+library(RColorBrewer)
+library(pheatmap)
+```
+
+## Start of the analysis
+
+Extract the counts from the .rds files of the different cohorts and join them
+
+```{r}
+fc_hs_F <- readr::read_rds("~/fc_F.rds")
+fc_hs_first_M <- readr::read_rds("~/fc_1_M.rds")
+fc_hs_second_M <- readr::read_rds("~/fc_2_M.rds")
+rawcounts_female <- fc_hs_F$counts
+rawcounts_first_male <- fc_hs_first_M$counts
+rawcounts_second_male <- fc_hs_second_M$counts
+rawcounts <- cbind(rawcounts_female,rawcounts_first_male, rawcounts_second_male)
+#Taking only the WT samples, and not the KO samples
+rawcounts <- rawcounts[, c(3,6,7,8,11,12,15,16,19,21,23,24)] 
+colnames(rawcounts) <- c("D0019_8M_WT_F", "D0014_8M_WT_F", "D0032_8M_WT_F", "D0016_8M_WT_F","MB18_D0023_8M_WT_M", "MB18_D0036_8M_WT_M", "MB18_D0022_8M_WT_M", "MB18_D0020_8M_WT_M", "MB20_D0549_8M_WT_M", "MB20_D0564_8M_WT_M", "MB20_D0585_8M_WT_M","MB20_D0612_8M_WT_M")
+```
+
+# Filtering
+
+```{r}
+# minimal pre-filtering to keep only rows that have 2 reads in at least two samples for each gene
+filtered <- apply(rawcounts, 1, function(x) length(x[x>=2])>=2) %>% 
+  rawcounts[.,]
+dim(filtered)
+```
+
+```{r defined function}
+# clean ensembl ID
+cleanEnsembl <- function(x) {
+  tmp <- strsplit(x, split = "\\.")
+  rowNames <- c()
+  for (i in 1:length(tmp)) rowNames <- append(rowNames, unlist(tmp[i])[1])
+  return(rowNames)
+}
+
+# get gene names
+library(biomaRt)
+mart <- useMart('ensembl', dataset = 'mmusculus_gene_ensembl')
+ensembl2name <- getBM(attributes=c("ensembl_gene_id","mgi_symbol"),mart=mart)
+
+getGeneNames <- function(x) { # after retrive biomaRt gene names, x: any object from DEseq
+  getName <- as.data.frame(x)
+  getName$ensembl <- row.names(getName)
+  getName <- merge(x=getName, y=ensembl2name, by.x="ensembl", by.y="ensembl_gene_id", all.x=TRUE)
+  return(getName)
+}
+
+```
+
+```{r clean ensembl gene ID}
+row.names(filtered) <- cleanEnsembl(row.names(filtered))
+```
+
+## Creation of metadata
+
+```{r}
+x <- as.factor(c("Female", "Female", "Female", "Female","Male", "Male", "Male", "Male", "Male", "Male", "Male","Male"))
+```
+
+We store the data in an object of S4 class SeqExpressionSet from the EDASeq package. This allows us to make full use of the plotting and normalization functionality of EDASeq.
+
+```{r EDA}
+set <- newSeqExpressionSet(as.matrix(filtered), phenoData = data.frame(x, row.names=colnames(filtered)))
+info.data <- data.frame(x)
+rownames(info.data) <- c("D0019_8M_WT_F", "D0014_8M_WT_F", "D0032_8M_WT_F", "D0016_8M_WT_F","MB18_D0023_8M_WT_M", "MB18_D0036_8M_WT_M", "MB18_D0022_8M_WT_M", "MB18_D0020_8M_WT_M", "MB20_D0549_8M_WT_M", "MB20_D0564_8M_WT_M", "MB20_D0585_8M_WT_M","MB20_D0612_8M_WT_M")
+```
+
+
+# Exploratory data analysis
+
+
+The boxplots of relative log expression (RLE = log-ratio of read count to median read count across sample) and PCA plots should reveal two clear clusters (left and right) that belongs to each experiment/cohort to proceed further with the batch correction
+
+```{r}
+# boxplot of RLE
+colors <- brewer.pal(3, "Set2")
+plotRLE(set, outline=FALSE, ylim=c(-4, 4), col=colors[x], xlab = "WT 8M samples", ylab= "RLE")
+plotPCA(set, col=colors[x], cex=1.2)
+```
+
+It was the case, so batch correction was applied.
+
+
+# Empirical control genes "in silico"
+
+To estimate the factors of unwanted variation (prior to the batch correction), a set of negative control genes, in this case, a set of “in-silico empirical” negative controls (least significantly DE genes based on a first-pass DE analysis) is calculated
+
+```{r}
+design <- model.matrix(~x, data=pData(set))
+y <- DGEList(counts=counts(set), group=x) # from EdgeR 
+y <- calcNormFactors(y, method="upperquartile") 
+y <- estimateGLMCommonDisp(y, design) 
+y <- estimateGLMTagwiseDisp(y, design)
+fit <- glmFit(y, design) 
+lrt <- glmLRT(fit, coef=2)
+top <- topTags(lrt, n=nrow(set))$table
+empirical <- rownames(set)[which(!(rownames(set) %in% rownames(top)[1:5000]))]
+```
+
+# RUVg
+
+Once the set ogf negative control genes is calculated, the RUVg function returns the estimated factors of unwanted variation and the normalized counts obtained by regressing the original counts on the unwanted factors (empirical)
+
+```{r RUVg}
+set2 <- RUVg(set, empirical, k=1)
+pData(set2)
+plotRLE(set2, outline=FALSE, ylim=c(-4, 4), col=colors[x])
+plotPCA(set2, col=colors[x], cex=1.2)
+```
+
+
+# Comparison of non batch corrected and batch corrected sets on PCA plots
+
+```{r}
+# modified function from the EDAseq source code
+betterPCA <- function(object, k=2, labels=TRUE, isLog=FALSE) {
+  if(!isLog) {
+    Y <- apply(log(object+1), 1, function(y) scale(y, center=TRUE, scale=FALSE))
+    } else {
+      Y <- apply(object, 1, function(y) scale(y, center=TRUE, scale=FALSE))
+      }
+  s <- svd(Y)
+  percent <- s$d^2/sum(s$d^2)*100
+  labs <- sapply(seq_along(percent), function(i) {
+    paste("PC ", i, " (", round(percent[i], 2), "%)", sep="")
+    })
+  
+  if(k>ncol(object)) {
+    stop("The number of PCs must be less than the number of samples.")
+    }
+  if(k<2) {
+    stop("The number of PCs must be at least 2.")
+    } else if (k==2) {
+      x <-  as.factor(c("Female", "Female", "Female", "Female","Male", "Male", "Male", "Male", "Male", "Male", "Male","Male"))
+      ggplot( data = as.data.frame(s$u), mapping = aes(x=V1, y=V2, color = x)) +
+        geom_jitter() +
+        theme(axis.title.x=element_blank()) +
+        expand_limits(y=0) +
+        ylab(labs[2]) +
+        xlab(labs[1]) +
+        theme_bw() + 
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+        theme(legend.title=element_blank())
+    }
+      
+}
+
+betterPCA(normCounts(set))
+betterPCA(normCounts(set2))
+
+```
+
+
+In this exploratory analysis, it should be possible to see how after batch correction, samples are not clusted according to the experiment (cohorts) anymore. Batch effect should have been removed.
+
+
+## Create the DESeq2 object
+
+```{r}
+colnames(counts(set2)) == rownames(pData(set2))
+
+dds <- DESeqDataSetFromMatrix(countData = counts(set2), colData = pData(set2), design = ~ W_1 + x)
+dds$x <- factor(dds$x, levels = c("Female", "Male"))
+```
+
+## #Differentail expression analysis
+
+```{r}
+dds <- DESeq(dds)
+```
+
+```{r}
+# Checking which coef we should take in the following function
+resultsNames(dds)
+library(apeglm)
+# To effect size shrinkage
+ape <- lfcShrink(dds, coef = 3, type = "apeglm")
+sum(ape$padj < 0.05, na.rm = TRUE)
+```
+
+## MA plot
+
+```{r}
+plotMA(ape, ylim=c(-5,5), cex=.5, alpha = .05, colSig = "red")
+```
+
+## Annotation of the results
+
+```{r}
+gtf <- import("~/GRCm38.gtf")
+annotation_genes <- data.frame(gtf)
+```
+
+```{r}
+ape_df <- data.frame(ape)
+##Label the first column as gene_id
+ape_df <- ape_df %>% 
+  rownames_to_column(var = "gene_id")
+##Join both data frames by gene_id
+ape_df <- left_join(ape_df,
+          annotation_genes,
+          by = "gene_id") %>% 
+  distinct(gene_id, .keep_all = TRUE)
+##Filtering of columns
+ape_df <- ape_df %>% 
+  dplyr::select(gene_id, baseMean, log2FoldChange, lfcSE, pvalue, padj, seqnames, gene_name)
+```
+
+```{r}
+library(annotables)
+grcm38 %>% dplyr::select(symbol, description) -> grcm38_description
+```
+
+
+```{r}
+left_join(ape_df,
+          grcm38_description, 
+          by = c("gene_name" = "symbol")) %>% 
+  distinct(gene_id, .keep_all = TRUE) -> ape_df
+```
+
+## Arrange Differentially expressed genes according to their adjusted p-value
+
+```{r}
+# Selecting the ones with an FDR < 0.05
+subset(ape_df, padj < 0.05) -> significant_genes
+```
+
+## RPKM Calculation
+
+```{r}
+rawcount_2 <- counts(dds)
+```
+
+```{r}
+gene_length <- fc_hs$annotation %>% 
+  select(GeneID, Length) %>%
+  filter(GeneID %in% rownames(rawcount_2))
+#Tranforming the results from bp to kb
+gene_length <- gene_length %>% 
+    mutate(length_kb = Length/1000)
+  
+# scaling factor. Obtaining the reads per million for each individual sample. Row wise. Indicated using the number 2 in the function. 
+  scale_factor <- apply(rawcount_2,
+    2, function(x) sum(x))/1000000
+  scale_factor
+  
+# normalize to library size using the scale factor of each sample. 
+norm_counts <- rawcount_2 %>%  
+    sweep(., 2, scale_factor, "/")
+head(norm_counts)
+  
+# RPKM calculation
+rawcount_2 %>% as.data.frame() %>% 
+  rownames_to_column(var = "GeneID") -> rawcount_2
+all_info <- left_join(rawcount_2, gene_length, by = c("GeneID")) 
+all_info
+#Normalized counts of each gene divided by the length of the gene in kb
+rpkm <- norm_counts%>% 
+  sweep(., 1, all_info$length_kb, "/")
+```

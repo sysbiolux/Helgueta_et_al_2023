@@ -1,0 +1,281 @@
+---
+title: "RNA-seq analysis of Park7 KO Females 3 months of age"
+author: "Sergio Helgueta"
+output: html_document
+date: '2022-12-27'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Analysis of RNA-seq midbrain data from 4 Park7 KnockOut and 3 Wildtype female mice at 3 months of age
+
+# Version of the different tools used
+
+```{r}
+conda 4.11.0
+snakemake 6.10.0
+
+STAR 2.7.4a
+samtools 1.10
+SortMeRNA 2.1
+FastQC 0.11.9
+AdapterRemoval ver. 2.3.1
+R version 4.0.0 (2020-04-24)
+DESeq2  1.20.0
+apeglm  1.10.0 
+Rsubread 1.28.1  
+```
+
+# RNA-seq analysis using SnakeMake
+
+Snakemake pipeline was used for the analysis of the RNA-seq data (https://github.com/snakemake/snakemake).All the details can be found in https://gitlab.lcsb.uni.lu/aurelien.ginolhac/snakemake-rna-seq 
+
+Set up the environment:
+
+```{r}
+#Snakemake is installed via conda
+conda update conda
+conda install -c conda-forge mamba
+mamba create -c conda-forge -c bioconda -n snakemake snakemake
+```
+
+Now snakemake should be installed in its specific environment. This can be checked:
+
+
+```{r}
+conda env list
+```
+
+```{r}
+#recommendation: update snakemake
+conda update -c conda-forge -c bioconda -n snakemake snakemake
+```
+
+Fecth the workflow template:
+
+```{r}
+wget -qO- https://git-r3lab.uni.lu/aurelien.ginolhac/snakemake-rna-seq/-/archive/v0.2.3/snakemake-rna-seq-.tar.gz | tar xfz - --strip-components=1
+```
+
+Preparation of specific setups:
+
+```{r}
+alias smk='conda activate snakemake && module load tools/Singularity'
+alias dag='snakemake --dag | dot -Tpdf > dag.pdf'
+complete -o bashdefault -C snakemake-bash-completion snakemake
+```
+
+Enter the config folder and go the the following file: **config.yaml**. Inside this file, the following modifications were done:
+
+```{r}
+ref:
+  species: "mus_musculus"
+  build: "GRCm38"
+  release: "102"
+```
+
+To be able to create the **units.tsv** file one can run the following command:
+
+```{r}
+ls fastq/*z | paste - - | awk 'BEGIN{OFS="\t";print "sample\tunit\tfq1\tfq2\tstrandedness"}{id=substr($1,index($1,"/")+1,index($1,"_Lasse")-7);print id,"1",$1,$2, "reverse"}' | sed 's/\-/_/' > config/units.tsv
+```
+
+Regarding **samples.tsv**:
+
+```{r}
+ls fastq/*z | paste - - | awk 'BEGIN{OFS="\t";print "sample\tcondition"}{id=substr($1,index($1,"/")+1,index($1,"_Lasse")-7);print id,id}' | sed 's/[0-9]$//; s/\-/_/g' > config/samples.tsv
+```
+
+Inside **samples.tsv** it is necessary to specify the condition. In this case, KO or WT according to the genotype of the sample used.
+
+Once those files are defined, snakemake can be run using the following commands:
+
+```{r}
+conda activate snakemake 
+srun snakemake --use-singularity --singularity-args "-B /scratch/users/aginolhac:/scratch/users/aginolhac" -j 28
+```
+
+Once this is done, gene counts are obtained.
+
+# DESeq2 analysis
+
+Loading the libraries:
+
+```{r}
+library(tidyverse)
+library(DESeq2)
+library(knitr)
+library(htmlTable)
+library(rtracklayer)
+library(RColorBrewer)
+library(pheatmap)
+```
+
+## Start of the analysis
+
+Extract the counts from the .rds file
+
+```{r}
+fc_hs <- readr::read_rds("~/fc.rds")
+rawcounts <- fc_hs$counts
+#to see the order of the samples in the file
+head(rawcounts)
+#change the name of each sample-column
+colnames(rawcounts) <- c("D0020_3M_KO", "D0026_3M_WT", "D0038_3M_WT", "D0049_3M_WT", "D0022_3M_KO", "D0034_3M_KO", "D0045_3M_KO")
+```
+
+Explore the data:
+
+```{r}
+str(rawcounts)
+```
+
+## Creation of metadata
+
+```{r}
+genotype <- c("KnockOut", "WildType", "WildType", "WildType", "KnockOut", "KnockOut", "KnockOut")
+```
+
+Combine the vectors in a data frame and then add the exact names of the samples:
+
+```{r}
+info.data <- data.frame(genotype)
+rownames(info.data) <- c("D0020_3M_KO", "D0026_3M_WT", "D0038_3M_WT", "D0049_3M_WT", "D0022_3M_KO", "D0034_3M_KO", "D0045_3M_KO") 
+```
+
+## Check sample order
+
+A TRUE message is needed
+
+```{r}
+all(rownames(info.data) == colnames(rawcounts))
+``` 
+
+
+## Create the DESeq2 object
+
+```{r}
+#Establishing WT as the control 
+dds <- DESeqDataSetFromMatrix(countData = rawcounts,
+                              colData = info.data,
+                              design = ~ genotype)
+
+dds$genotype <- factor(dds$genotype, levels = c("WildType", "KnockOut"))
+```
+
+## PCA plot
+
+```{r}
+vst <- vst(dds, blind = TRUE)
+plotPCA(vst, intgroup = c("genotype"))
+```
+
+## Pre-filtering of low expressed genes
+
+```{r}
+#minimal pre-filtering to keep only rows-genes that have at least 10 reads in total (all samples)
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+raw_count_after_filtering <- counts(dds)
+```
+
+## #Differentail expression analysis
+
+```{r}
+dds <- DESeq(dds)
+```
+
+```{r}
+# Checking which coef we should take in the following function
+resultsNames(dds)
+library(apeglm)
+# To effect size shrinkage
+ape <- lfcShrink(dds, coef = 2, type = "apeglm")
+sum(ape$padj < 0.05, na.rm = TRUE)
+```
+
+## MA plot
+
+```{r}
+plotMA(ape, ylim=c(-5,5), cex=.5, alpha = .05, colSig = "red")
+```
+
+## Annotation of the results
+
+```{r}
+gtf <- import("~/GRCm38.gtf")
+annotation_genes <- data.frame(gtf)
+```
+
+```{r}
+ape_df <- data.frame(ape)
+##Label the first column as gene_id
+ape_df <- ape_df %>% 
+  rownames_to_column(var = "gene_id")
+##Join both data frames by gene_id
+ape_df <- left_join(ape_df,
+          annotation_genes,
+          by = "gene_id") %>% 
+  distinct(gene_id, .keep_all = TRUE)
+##Filtering of columns
+ape_df <- ape_df %>% 
+  dplyr::select(gene_id, baseMean, log2FoldChange, lfcSE, pvalue, padj, seqnames, gene_name)
+```
+
+```{r}
+library(annotables)
+grcm38 %>% dplyr::select(symbol, description) -> grcm38_description
+```
+
+
+```{r}
+left_join(ape_df,
+          grcm38_description, 
+          by = c("gene_name" = "symbol")) %>% 
+  distinct(gene_id, .keep_all = TRUE) -> ape_df
+```
+
+## Arrange Differentially expressed genes according to their adjusted p-value
+
+```{r}
+# Selecting the ones with an FDR < 0.05
+subset(ape_df, padj < 0.05) -> significant_genes
+```
+
+## RPKM Calculation
+
+```{r}
+rawcount_2 <- counts(dds)
+```
+
+```{r}
+gene_length <- fc_hs$annotation %>% 
+  select(GeneID, Length) %>%
+  filter(GeneID %in% rownames(rawcount_2))
+#Tranforming the results from bp to kb
+gene_length <- gene_length %>% 
+    mutate(length_kb = Length/1000)
+  
+# scaling factor. Obtaining the reads per million for each individual sample. Row wise. Indicated using the number 2 in the function. 
+  scale_factor <- apply(rawcount_2,
+    2, function(x) sum(x))/1000000
+  scale_factor
+  
+# normalize to library size using the scale factor of each sample. 
+norm_counts <- rawcount_2 %>%  
+    sweep(., 2, scale_factor, "/")
+head(norm_counts)
+  
+# RPKM calculation
+rawcount_2 %>% as.data.frame() %>% 
+  rownames_to_column(var = "GeneID") -> rawcount_2
+all_info <- left_join(rawcount_2, gene_length, by = c("GeneID")) 
+all_info
+#Normalized counts of each gene divided by the length of the gene in kb
+rpkm <- norm_counts%>% 
+  sweep(., 1, all_info$length_kb, "/")
+```

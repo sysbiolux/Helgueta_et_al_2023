@@ -1,0 +1,17 @@
+﻿fastq_file;name;description;date;genotype ;gender
+DJ1-KO_MB18_D0007_M_8M_KO_Lasse_S16_R1_001.fastq;D007_KO;RNA-seq midbrain mouse samples;20190905;Knockout;Male
+DJ1-KO_MB18_D0021_M_8M_KO_Lasse_S10_R1_001.fastq;D0021_KO;RNA-seq midbrain mouse samples;20190905;Knockout;Male
+DJ1-KO_MB18_D0023_M_8M_WT_Lasse_S12_R1_001.fastq;D0023_WT;RNA-seq midbrain mouse samples;20190905;Wildtype;Male
+DJ1-KO_MB18_D0036_M_8M_WT_Lasse_S14_R1_001.fastq;D0036_WT;RNA-seq midbrain mouse samples;20190905;Wildtype;Male
+DJ1-KO_MB18_D0037_M_8M_KO_Lasse_S15_R1_001.fastq;D0037_KO;RNA-seq midbrain mouse samples;20190905;Knockout;Male
+DJ1-KO_MB18_D0026_M_8M_KO_Lasse_S13_R1_001.fastq;D0026_KO;RNA-seq midbrain mouse samples;20190905;Knockout;Male
+DJ1-KO_MB18_D0022_M_8M_WT_Lasse_S11_R1_001.fastq;D0022_WT;RNA-seq midbrain mouse samples;20190905;Wildtype;Male
+DJ1-KO_MB18_D0020_M_8M_WT_Lasse_S9_R1_001.fastq;D0020_WT;RNA-seq midbrain mouse samples;20190905;Wildtype;Male
+MB20-D0546_KO_EFPFU_SB_S94_R1_001.fastq.gz;D0546_KO;Paired end: RNA-seq midbrain mouse samples;20211124;Knockout;Male
+MB20-D0548_KO_EFPFU_SB_S95_R1_001.fastq.gz;D0548_KO;Paired end: RNA-seq midbrain mouse samples;20211124;Knockout;Male
+MB20-D0549_WT_EFPFU_SB_S96_R1_001.fastq.gz;D0549_WT;Paired end: RNA-seq midbrain mouse samples;20211124;Wildtype;Male
+MB20-D0561_KO_EFPFU_SB_S97_R1_001.fastq.gz;D0561_KO;Paired end: RNA-seq midbrain mouse samples;20211124;Knockout;Male
+MB20-D0564_WT_EFPFU_SB_S98_R1_001.fastq.gz;D0564_WT;Paired end: RNA-seq midbrain mouse samples;20211124;Wildtype;Male
+MB20-D0570_KO_EFPFU_SB_S99_R1_001.fastq.gz;D0570_KO;Paired end: RNA-seq midbrain mouse samples;20211124;Knockout;Male
+MB20-D0585_WT_EFPFU_SB_S100_R1_001.fastq.gz;D0585_WT;Paired end: RNA-seq midbrain mouse samples;20211124;Wildtype;Male
+MB20-D0612_WT_EFPFU_SB_S103_R1_001.fastq.gz;D0612_WT;Paired end: RNA-seq midbrain mouse samples;20211124;Wildtype;Male

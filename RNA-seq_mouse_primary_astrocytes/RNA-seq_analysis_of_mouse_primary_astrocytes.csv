@@ -1,0 +1,15 @@
+﻿fastq_file;name;description;date;condition;gender
+siNeg_1_RNA_EMCPD_SB_S7_R1_001.fastq.gz;siNeg_1;Paired end: RNA-seq midbrain mouse samples;;Control;Male
+siNeg_2_RNA_EMCPD_SB_S8_R1_001.fastq.gz;siNeg_2;Paired end: RNA-seq midbrain mouse samples;;Control;Male
+siNeg_2_RNA_EMCPD_SB_S8_R1_001.fastq.gz;siNeg_2;Paired end: RNA-seq midbrain mouse samples;;Control;Male
+siNeg_3_RNA_EMCPD_SB_S9_R1_001.fastq.gz;siNeg_3;Paired end: RNA-seq midbrain mouse samples;;Control;Male
+siNeg_4_RNA_EMCPD_SB_S10_R1_001.fastq.gz;siNeg_4;Paired end: RNA-seq midbrain mouse samples;;Control;Male
+siDj1_1_RNA_EMCPD_SB_S4_R1_001.fastq.gz;siPark7_1;Paired end: RNA-seq midbrain mouse samples;;Treated;Male
+siDj1_2_RNA_EMCPD_SB_S5_R1_001.fastq.gz;siPark7_2;Paired end: RNA-seq midbrain mouse samples;;Treated;Male
+siDj1_3_RNA_EMCPD_SB_S6_R1_001.fastq.gz;siPark7_3;Paired end: RNA-seq midbrain mouse samples;;Treated;Male
+siNrf2_1_RNA_EMCPD_SB_S11_R1_001.fastq.gz;siNfe2l2_1;Paired end: RNA-seq midbrain mouse samples;;Treated;Male
+siNrf2_2_RNA_EMCPD_SB_S12_R1_001.fastq.gz;sife2l2_2;Paired end: RNA-seq midbrain mouse samples;;Treated;Male
+siNrf2_3_RNA_EMCPD_SB_S13_R1_001.fastq.gz;siNfe2l2_3;Paired end: RNA-seq midbrain mouse samples;;Treated;Male
+siCyp1b1_1_RNA_EMCPD_SB_S1_R1_001.fastq.gz;siCyp1b1_1;Paired end: RNA-seq midbrain mouse samples;;Treated;Male
+siCyp1b1_2_RNA_EMCPD_SB_S2_R1_001.fastq.gz;siCyp1b1_2;Paired end: RNA-seq midbrain mouse samples;;Treated;Male
+siCyp1b1_3_RNA_EMCPD_SB_S3_R1_001.fastq.gz;siCyp1b1_3;Paired end: RNA-seq midbrain mouse samples;;Treated;Male

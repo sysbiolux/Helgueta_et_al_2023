@@ -1,0 +1,9 @@
+﻿fastq_file;name;description;date;genotype ;gender
+MB20-D0546_KO_EFPFU_SB_S94_R1_001.fastq.gz;D0546_KO;Paired end: RNA-seq midbrain mouse samples;20211124;Knockout;Male
+MB20-D0548_KO_EFPFU_SB_S95_R1_001.fastq.gz;D0548_KO;Paired end: RNA-seq midbrain mouse samples;20211124;Knockout;Male
+MB20-D0549_WT_EFPFU_SB_S96_R1_001.fastq.gz;D0549_WT;Paired end: RNA-seq midbrain mouse samples;20211124;Wildtype;Male
+MB20-D0561_KO_EFPFU_SB_S97_R1_001.fastq.gz;D0561_KO;Paired end: RNA-seq midbrain mouse samples;20211124;Knockout;Male
+MB20-D0564_WT_EFPFU_SB_S98_R1_001.fastq.gz;D0564_WT;Paired end: RNA-seq midbrain mouse samples;20211124;Wildtype;Male
+MB20-D0570_KO_EFPFU_SB_S99_R1_001.fastq.gz;D0570_KO;Paired end: RNA-seq midbrain mouse samples;20211124;Knockout;Male
+MB20-D0585_WT_EFPFU_SB_S100_R1_001.fastq.gz;D0585_WT;Paired end: RNA-seq midbrain mouse samples;20211124;Wildtype;Male
+MB20-D0612_WT_EFPFU_SB_S103_R1_001.fastq.gz;D0612_WT;Paired end: RNA-seq midbrain mouse samples;20211124;Wildtype;Male
