@@ -1,4 +1,4 @@
-date: '2022-12-27'
+ date: '2022-12-27'
 
 Code used for the analysis of the RNA-seq datasets produced in this study. Original fastq files deposited in European Nucleotide Archive (ENA) at EMBL-EBI under accession number [PRJEB59115](https://www.ebi.ac.uk/ena/browser/view/PRJEB59115).
 
