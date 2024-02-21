@@ -1,0 +1,177 @@
+---
+title: "Check brain sex dispersion"
+subtitle: "Project 190601"
+author: "Aurélien Ginolhac"
+date: "2024-01-15"
+format: 
+  html:
+    toc: true
+    code-fold: true
+    code-tools: true
+    code-block-bg: true
+    code-block-border-left: "#31BAE9"
+embed-resources: true
+execute: 
+  echo: false
+---
+
+
+```{r}
+#| label: setup
+#| include: false
+
+library(tidyverse)
+library(DESeq2)
+```
+
+
+```{r}
+#| label: check_data
+fs::dir_ls(".", glob = "*fc*.rds") |> 
+  map(\(x) read_rds(x)$counts) -> all_fc
+
+map(all_fc, rownames) -> rn_fc
+# check that all genes are in the order
+stopifnot(all(map_lgl(rn_fc, identical, rn_fc[[1]]))) # all(vapply(rn_fc, FUN = \(x) identical(x, rn_fc[[1]]), FUN.VALUE = logical(1)))
+```
+
+Merge all counts in one matrix
+
+From Sergio naming:
+ 
+fc_3M_F: For females 3 months old
+fc_8M_F: For females 8 months old
+fc_3M_M: For males 3 months old
+fc_8M_M_1st: For males 8 months old 1st cohort
+fc_8M_M_2nd: For males 8 months old 2nd  cohort
+
+```{r}
+#| label: merge_counts
+
+
+all_cts <- Reduce(\(x, y) cbind(x, y), all_fc) 
+colnames(all_cts) |> 
+  str_split_i("/", 2) |> 
+  str_replace("-", "_") |> 
+  str_replace("^J1", "DJ1") |> 
+  str_remove("_D\\d+") |> 
+  str_remove("DJ1_KO_") |>
+  str_replace("MB20", "MB20_M_8M") |> 
+  str_replace("(KO|WT)_([38]M)", "\\2_\\1") -> newcolnames
+# add replicate number
+tibble(a = newcolnames) |> 
+  mutate(b = paste0(a, "_", row_number()), .by = a) |> 
+  pull(b)
+colnames(all_cts) <- tibble(a = newcolnames) |> 
+  mutate(b = paste0(a, "_", row_number()), .by = a) |> 
+  pull(b)
+```
+
+To check the correspondences
+
+
+```{r}
+ map(all_fc, colnames) |> 
+  enframe() |> 
+  unnest(value) |> 
+  bind_cols(tibble(a = newcolnames))
+```
+
+We keep that separate, males of 8 months:
+
+MB18_M_8M = 1st cohort
+MB20_M_8M = 2nd cohort
+
+```{r}
+#| label: create_dds
+
+tibble(a = colnames(all_cts)) |> 
+  separate_wider_delim(a, delim = "_", names = c("exp", "sex", "age_months", "condition", "rep"),
+                       cols_remove = FALSE) |> 
+  select(-rep) |> 
+  column_to_rownames("a") |> 
+  mutate(across(everything(), as.factor)) -> col_data
+
+dds <- DESeqDataSetFromMatrix(countData = all_cts,
+                              colData = col_data,
+                              design = ~ sex + age_months + condition)
+
+smallestGroupSize <- 3
+keep <- rowSums(counts(dds) >= 10) >= smallestGroupSize
+dds <- dds[keep,]
+
+vsd <- vst(dds, blind = FALSE)
+pca_df <- plotPCA(vsd, intgroup = c("exp", "sex", "age_months"), returnData = TRUE)
+attr(pca_df, "percentVar")
+pca_df |> 
+  ggplot(aes(PC1, PC2, colour = sex, shape = age_months)) +
+  geom_point(size = 3) +
+  ggrepel::geom_text_repel(data = \(x) filter(x, sex == "M", age_months == "8M"),
+                           aes(label = case_match(exp,
+                                                 "MB18" ~ "1st",
+                                                 "MB20" ~ "2nd",
+                                                 .default = "NA"))) +
+  theme_bw() +
+  labs(x = paste("PC1",  round(attr(pca_df, "percentVar")[1], 3) * 100, "%"),
+       y = paste("PC2",  round(attr(pca_df, "percentVar")[2], 3) * 100, "%"))
+```
+
+
+Global Dispersion
+
+```{r}
+#| label: dispersion
+
+dds <- DESeq(dds)
+plotDispEsts(dds)
+rowData(dds)
+```
+
+
+```{r}
+#| label: group_dispersion
+
+subset_dds <- function(.dds, .pred) {
+  
+  colData(.dds) |> 
+    as_tibble() |> 
+    mutate(keep = {{.pred}}) |> 
+    pull(keep) -> keep
+  dds <- dds[, keep] 
+  message("subset dds, keep ", nrow(colData(dds)))
+  smallestGroupSize <- 3
+  rowskeep <- rowSums(counts(dds) >= 10) >= smallestGroupSize
+  dds <- dds[rowskeep, ]
+  design(dds) <- ~ condition
+  dds <- suppressMessages(DESeq(dds))
+  rowData(dds) |> 
+    as_tibble(rownames = "gene_id") |>
+    select(gene_id, baseMean, starts_with("disp"))
+  
+}
+
+rd_M_8M_1st <- subset_dds(dds, sex == "M" & age_months == "8M" & exp == "MB18")
+rd_M_8M_2nd <- subset_dds(dds, sex == "M" & age_months == "8M" & exp == "MB20")
+rd_F_8M_2nd <- subset_dds(dds, sex == "F" & age_months == "8M" & exp == "MB18")
+rd_F_3M <- subset_dds(dds, sex == "F" & age_months == "3M" & exp == "MB19")
+rd_M_3M <- subset_dds(dds, sex == "M" & age_months == "3M" & exp == "MB19")
+
+
+bind_rows(
+  F_3M = rd_F_3M,
+  M_8M_1st = rd_M_8M_1st,
+  M_8M_2nd = rd_M_8M_2nd,
+  F_8M = rd_F_8M_2nd, 
+  F_3M = rd_F_3M,
+  M_3M = rd_M_3M,
+  .id = "id"
+) |> 
+  mutate(sex = if_else(str_detect(id, "^F"), "F", "M")) |>
+  ggplot(aes(x = id, y = dispersion, colour = sex)) +
+  ggbeeswarm::geom_quasirandom(color = "grey90", alpha = 0.1) +
+  geom_boxplot(alpha = 0.6) +
+  scale_y_log10() +
+  theme_bw(14) + 
+  labs(x = NULL)
+```
+
