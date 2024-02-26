@@ -137,7 +137,7 @@ subset_dds <- function(.dds, .pred) {
     as_tibble() |> 
     mutate(keep = {{.pred}}) |> 
     pull(keep) -> keep
-  dds <- dds[, keep] 
+  dds <- .dds[, keep] 
   message("subset dds, keep ", nrow(colData(dds)))
   smallestGroupSize <- 3
   rowskeep <- rowSums(counts(dds) >= 10) >= smallestGroupSize
