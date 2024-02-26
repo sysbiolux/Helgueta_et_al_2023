@@ -141,7 +141,7 @@ subset_dds <- function(.dds, .pred) {
   message("subset dds, keep ", nrow(colData(dds)))
   smallestGroupSize <- 3
   rowskeep <- rowSums(counts(dds) >= 10) >= smallestGroupSize
-  dds <- dds[rowskeep, ]
+  dds <- .dds[rowskeep, ]
   design(dds) <- ~ condition
   dds <- suppressMessages(DESeq(dds))
   rowData(dds) |> 
