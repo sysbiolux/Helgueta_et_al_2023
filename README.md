@@ -13,3 +13,8 @@ Different folders are included in this repository:
 
 * `RNA-seq_mouse_primary_astrocytes`: Contains the analysis of 1 dataset of astrocytes treated with different siRNAs and their respective scramble: siPark7, siNfe2l2 and siCyp1b1 treated astrocytes
 
+# Specific questions:
+
+- Gene dispersions by sex and cell type: `RNA-seq_Sex-differences_8months_mice/Brain_sex_dispersion.qmd`
+- Cell purities and inflammation state: `assess_cell_purity.qmd`, using TPM on markers
+
