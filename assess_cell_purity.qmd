@@ -1,0 +1,70 @@
+---
+title: "Assess cell purities and inflammation"
+author: "Aurélien Ginolhac"
+date: "2024-10-22"
+embed-resources: true
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(tidyverse)
+library(ggbeeswarm)
+```
+
+## Markers  Astro and Micro and inflammation
+
+
+```{r}
+read_tsv("TPM_siNEG_3cell_types.tsv.gz", show_col_types = FALSE) |>  
+  filter(gene_name %in% c(  "Ccl5", "Tnf", "Ptgs2", "Il1b", "Il6",
+                           "Cxcl10", "Nos2"),
+         cell != "Oligodendrocytes") |> 
+  ggplot(aes(x = cell, y = value, color = sex)) +
+  geom_quasirandom(dodge.width = 0.5, alpha = 0.2) +
+  stat_summary(fun = "mean", geom = "point", aes(shape = "mean"),
+               size = 3,
+               position = position_dodge(width = 0.5)) +
+  facet_wrap(vars(gene_name), scales = "free_y", ncol = 2L) +
+  scale_shape_manual(values = 8) +
+  scale_y_continuous(labels = scales::label_comma()) +
+  theme_bw(13) +
+  theme(legend.position = "top",
+        axis.text.y = element_text(size = 7),
+        panel.grid.minor = element_blank()) +
+  guides(colour = guide_legend(override.aes = list(size = 2))) +
+  labs(y = "Transcripts per million (TPM)",
+       subtitle = "Condition: siNEG",
+       x = NULL,
+       shape = NULL,
+       title = "Gene expressions from GRCm39")
+```
+
+
+## Marker Oligo Astro Microglia for assessing culture purity
+
+```{r}
+read_tsv("TPM_siNEG_3cell_types.tsv.gz", show_col_types = FALSE) |> 
+  filter(gene_name %in% c("Olig2", "Gfap", "Aif1", "Itgam", "Ng2",
+                          "Olig1", "Sox10", "Cnp", "Mag", "Mog", "Mbp")) |> 
+  ggplot(aes(x = cell, y = value, color = sex)) +
+  geom_quasirandom(dodge.width = 0.5, alpha = 0.2) +
+  stat_summary(fun = "mean", geom = "point", aes(shape = "mean"),
+               size = 3,
+               position = position_dodge(width = 0.5)) +
+  facet_wrap(vars(gene_name), scales = "free_y", ncol = 2L) +
+  scale_shape_manual(values = 8) +
+  scale_y_continuous(labels = scales::label_comma()) +
+  theme_bw(13) +
+  theme(legend.position = "top",
+        axis.text.y = element_text(size = 7),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid.minor = element_blank()) +
+  guides(colour = guide_legend(override.aes = list(size = 2))) +
+  labs(y = "Transcripts per million (TPM)",
+       subtitle = "Condition: siNEG",
+       x = NULL,
+       shape = NULL,
+       title = "Gene expressions from GRCm39")
+```
